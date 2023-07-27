@@ -122,7 +122,7 @@ static struct wcd_mbhc_config wcd_mbhc_cfg = {
 	.mbhc_micbias = MIC_BIAS_2,
 	.anc_micbias = MIC_BIAS_2,
 	.enable_anc_mic_detect = false,
-	.moisture_duty_cycle_en = true,
+	.moisture_duty_cycle_en = false,
 };
 
 static bool msm_usbc_swap_gnd_mic(struct snd_soc_component *component, bool active)
