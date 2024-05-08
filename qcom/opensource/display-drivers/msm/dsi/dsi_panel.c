@@ -351,6 +351,48 @@ static int dsi_panel_set_pinctrl_state(struct dsi_panel *panel, bool enable)
 	return rc;
 }
 
+static bool power_on_at_part1;
+
+static int dsi_panel_power_on_part1(struct dsi_panel *panel)
+{
+	int rc = 0;
+
+	rc = dsi_pwr_enable_regulator(&panel->power_info, true);
+	if (rc) {
+		DSI_ERR("[%s] failed to enable vregs, rc=%d\n", panel->name, rc);
+	} else {
+		power_on_at_part1 = true;
+	}
+
+	return rc;
+}
+
+static int dsi_panel_power_on_part2(struct dsi_panel *panel)
+{
+	int rc = 0;
+
+	rc = dsi_panel_set_pinctrl_state(panel, true);
+	if (rc) {
+		DSI_ERR("[%s] failed to set pinctrl, rc=%d\n", panel->name, rc);
+		return rc;
+	}
+
+	rc = dsi_panel_reset(panel);
+	if (rc) {
+		DSI_ERR("[%s] failed to reset panel, rc=%d\n", panel->name, rc);
+		if (gpio_is_valid(panel->reset_config.disp_en_gpio))
+			gpio_set_value(panel->reset_config.disp_en_gpio, 0);
+
+		if (gpio_is_valid(panel->bl_config.en_gpio))
+			gpio_set_value(panel->bl_config.en_gpio, 0);
+
+		(void)dsi_panel_set_pinctrl_state(panel, false);
+	} else {
+		power_on_at_part1 = false;
+	}
+
+	return rc;
+}
 
 static int dsi_panel_power_on(struct dsi_panel *panel)
 {
@@ -390,6 +432,8 @@ error_disable_vregs:
 	(void)dsi_pwr_enable_regulator(&panel->power_info, false);
 
 exit:
+
+	power_on_at_part1 = false;
 	return rc;
 }
 
@@ -397,12 +441,23 @@ static int dsi_panel_power_off(struct dsi_panel *panel)
 {
 	int rc = 0;
 
+	if (power_on_at_part1) {
+		power_on_at_part1 = false;
+		rc = dsi_pwr_enable_regulator(&panel->power_info, false);
+		if (rc)
+			DSI_ERR("[%s] failed to enable vregs, rc=%d\n",
+				    panel->name, rc);
+		return rc;
+	}
+
 	if (gpio_is_valid(panel->reset_config.disp_en_gpio))
 		gpio_set_value(panel->reset_config.disp_en_gpio, 0);
 
 	if (gpio_is_valid(panel->reset_config.reset_gpio) &&
-					!panel->reset_gpio_always_on)
+					!panel->reset_gpio_always_on) {
 		gpio_set_value(panel->reset_config.reset_gpio, 0);
+		msleep(2);
+	}
 
 	if (gpio_is_valid(panel->reset_config.lcd_mode_sel_gpio))
 		gpio_set_value(panel->reset_config.lcd_mode_sel_gpio, 0);
@@ -571,9 +626,41 @@ static int dsi_panel_update_backlight(struct dsi_panel *panel,
 	unsigned long mode_flags = 0;
 	struct mipi_dsi_device *dsi = NULL;
 
+    // Custom backlight mapping
+	u32 original_mapping[9] = {0, 31, 63, 95, 127, 159, 191, 223, 255};
+	u32 new_mapping[9] = {0, 89, 127, 156, 180, 201, 220, 238, 255};
+	u32 maping_range = 0;
+	u32 bl_ratio = 0;
+	int i;
+
 	if (!panel || (bl_lvl > 0xffff)) {
 		DSI_ERR("invalid params\n");
 		return -EINVAL;
+	}
+
+	if (bl_lvl > panel->bl_config.bl_max_level) {
+		bl_lvl = panel->bl_config.bl_max_level;
+	}
+
+	if (!strcmp(panel->name, "e667 amoled cmd mode dsi everdisplay panel")) {
+		bl_ratio = (panel->bl_config.bl_max_level * 1000) / original_mapping[8];
+		for (i = 0; i < 9; i++) {
+			original_mapping[i] = (original_mapping[i] * bl_ratio) / 1000;
+			new_mapping[i] = (new_mapping[i] * bl_ratio) / 1000;
+		}
+
+		original_mapping[8] = panel->bl_config.bl_max_level;
+		for (i = 1; i < 9; i++) {
+			if (bl_lvl <= original_mapping[i]) {
+				bl_ratio = ((bl_lvl - original_mapping[i-1]) * 1000) / (original_mapping[i] - original_mapping[i - 1]);
+				bl_lvl = (bl_ratio * (new_mapping[i] - new_mapping[i - 1])) / 1000 + new_mapping[i - 1];
+				break;
+			}
+		}
+	} else {
+		bl_ratio = (bl_lvl * 1000) / panel->bl_config.bl_max_level;
+		maping_range = panel->bl_config.bl_max_level - panel->bl_config.bl_min_level;
+		bl_lvl = (bl_ratio * maping_range) / 1000 + panel->bl_config.bl_min_level;
 	}
 
 	dsi = &panel->mipi_device;
@@ -4379,8 +4466,13 @@ int dsi_panel_pre_prepare(struct dsi_panel *panel)
 	mutex_lock(&panel->panel_lock);
 
 	/* If LP11_INIT is set, panel will be powered up during prepare() */
-	if (panel->lp11_init)
+	if (panel->lp11_init) {
+		rc = dsi_panel_power_on_part1(panel);
+		if (rc) {
+			DSI_ERR("[%s] panel power on part1 failed, rc=%d\n", panel->name, rc);
+		}
 		goto error;
+	}
 
 	rc = dsi_panel_power_on(panel);
 	if (rc) {
@@ -4537,9 +4629,9 @@ int dsi_panel_prepare(struct dsi_panel *panel)
 	mutex_lock(&panel->panel_lock);
 
 	if (panel->lp11_init) {
-		rc = dsi_panel_power_on(panel);
+		rc = dsi_panel_power_on_part2(panel);
 		if (rc) {
-			DSI_ERR("[%s] panel power on failed, rc=%d\n",
+			DSI_ERR("[%s] panel power on part2 failed, rc=%d\n",
 			       panel->name, rc);
 			goto error;
 		}
