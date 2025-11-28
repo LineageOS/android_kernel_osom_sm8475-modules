@@ -125,6 +125,7 @@ struct wsa883x_priv {
 	unsigned long status_mask;
 	struct snd_soc_dai_driver *dai_driver;
 	struct snd_soc_component_driver *driver;
+	unsigned long irq_enabled;
 };
 
 #endif /* WSA883X_INTERNAL_H */
