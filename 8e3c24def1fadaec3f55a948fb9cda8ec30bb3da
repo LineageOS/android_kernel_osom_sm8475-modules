@@ -16,6 +16,23 @@
       "message": "Not sure how common of a practice it is to pick kernel commits from other OEMs, but I observed the same unbalanced irq warning on ingot and adapted the Moto fix to  our wsa883x driver. It seems to do the job.",
       "revId": "8e3c24def1fadaec3f55a948fb9cda8ec30bb3da",
       "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "dab48b08_0b340e98",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 1
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 4550
+      },
+      "writtenOn": "2025-12-31T10:03:07Z",
+      "side": 1,
+      "message": "This should go to common kernel if it fixes an upstream driver",
+      "revId": "8e3c24def1fadaec3f55a948fb9cda8ec30bb3da",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
     }
   ]
 }
